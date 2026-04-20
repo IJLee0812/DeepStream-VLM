@@ -1,0 +1,10 @@
+models/hub/
+models/*.onnx
+models/*.engine
+results/
+logs/
+docs/
+.git/
+.env
+__pycache__/
+*.pyc

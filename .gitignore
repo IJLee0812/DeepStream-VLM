@@ -1,0 +1,31 @@
+# Model weights & caches
+models/hub/
+models/*.onnx
+models/*.engine
+*.bin
+*.safetensors
+*.gguf
+
+# Runtime outputs
+results/
+logs/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Environment
+.env
+*.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

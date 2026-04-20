@@ -1,0 +1,60 @@
+[project]
+name = "deepstream-vlm"
+version = "0.5.0"
+description = "DeepStream 9.0 + Cosmos-Reason2-8B FP8 VLM pipeline with YOLO detection hints"
+requires-python = ">=3.10"
+# Runtime deps managed by Dockerfile + requirements.txt (not here,
+# because vllm/torch require CUDA which is unavailable on host).
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "pytest-mock>=3.12",
+    "PyYAML",
+]
+lint = [
+    "ruff>=0.4",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "pytest-mock>=3.12",
+    "PyYAML",
+    "ruff>=0.4",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
+markers = [
+    "gpu: requires NVIDIA GPU (skipped without nvidia-smi)",
+    "gstreamer: requires GStreamer runtime (skipped outside Docker)",
+    "integration: integration-level test (may require Docker)",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = ["reference/", "models/", ".venv/", "results/", "logs/", "docs/"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "UP", "SIM"]
+ignore = [
+    "E501",    # line length handled by formatter
+    "E402",    # module-level import not at top (GStreamer gi.require_version pattern)
+    "F401",    # unused import (gstnvvllmvlm imported for side-effect registration)
+    "SIM102",  # nested if — GStreamer pad callbacks are clearer expanded
+    "SIM105",  # contextlib.suppress — try/except/pass is more explicit for CUDA/GStreamer
+    "SIM108",  # ternary — multi-line if/else is clearer for nanosecond math
+    "UP035",   # typing.Dict/List deprecated — keep for compatibility with older type checkers
+]
+
+[tool.ruff.lint.per-file-ignores]
+"plugin/gstnvvllmvlm.py" = ["E402", "B007"]
+"src/vllm_ds_app_kafka_publish.py" = ["E402", "F401"]
+"scripts/*" = ["E402", "B007"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"

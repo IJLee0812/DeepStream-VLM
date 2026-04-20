@@ -1,0 +1,4 @@
+vllm==0.14.0
+kafka-python
+PyYAML
+Pillow
