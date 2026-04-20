@@ -71,48 +71,48 @@ def _render_text_panel(parsed: dict, start: float, end: float) -> Image.Image:
     panel = Image.new("RGB", (PANEL_W, PANEL_H), BG)
     draw = ImageDraw.Draw(panel)
 
-    title_font = _find_font(24)
-    header_font = _find_font(18)
-    body_font = _find_font(16)
+    title_font = _find_font(18)
+    header_font = _find_font(14)
+    body_font = _find_font(12)
+    footer_font = _find_font(11)
 
     # Header line: segment timing
-    draw.text((24, 20), f"Segment [{start:.1f}s — {end:.1f}s]", fill=ACCENT, font=title_font)
+    draw.text((20, 16), f"Segment [{start:.1f}s — {end:.1f}s]", fill=ACCENT, font=title_font)
 
-    y = 70
+    y = 52
     # Scene summary (wrapped)
-    draw.text((24, y), "Scene Summary", fill=ACCENT, font=header_font)
-    y += 28
+    draw.text((20, y), "Scene Summary", fill=ACCENT, font=header_font)
+    y += 22
     summary = parsed.get("scene_summary", "(no summary)")
-    for line in textwrap.wrap(summary, width=58):
-        draw.text((24, y), line, fill=TEXT_FG, font=body_font)
-        y += 22
-    y += 18
+    for line in textwrap.wrap(summary, width=78):
+        draw.text((20, y), line, fill=TEXT_FG, font=body_font)
+        y += 17
+    y += 14
 
     # Key objects (top N)
-    draw.text((24, y), "Key Objects (YOLO26 grounded)", fill=ACCENT, font=header_font)
-    y += 28
-    for obj in (parsed.get("key_objects") or [])[:4]:
+    draw.text((20, y), "Key Objects (YOLO26 grounded)", fill=ACCENT, font=header_font)
+    y += 22
+    for obj in (parsed.get("key_objects") or [])[:5]:
         t = obj.get("type", "object")
         desc = obj.get("description", "")
         line = f"• {t}: {desc}"
-        for wrapped in textwrap.wrap(line, width=58):
-            draw.text((24, y), wrapped, fill=TEXT_FG, font=body_font)
-            y += 22
-        y += 4
+        for wrapped in textwrap.wrap(line, width=78):
+            draw.text((20, y), wrapped, fill=TEXT_FG, font=body_font)
+            y += 17
+        y += 3
 
     # Road + weather small footer
-    y = PANEL_H - 70
+    y = PANEL_H - 60
     road = parsed.get("road_type", "")
     weather = parsed.get("weather", "")
     traffic = parsed.get("traffic_density", "")
-    footer_font = _find_font(14)
     parts = [
         p
         for p in [f"road: {road}", f"weather: {weather}", f"traffic: {traffic}"]
         if p.split(": ")[1]
     ]
     for i, p in enumerate(parts):
-        draw.text((24, y + i * 18), p, fill=(160, 180, 200), font=footer_font)
+        draw.text((20, y + i * 14), p, fill=(160, 180, 200), font=footer_font)
     return panel
 
 

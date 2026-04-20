@@ -2,7 +2,7 @@
 
 > Real-time video understanding pipeline powered by **NVIDIA DeepStream 9.0** and **Cosmos-Reason2-8B** Vision Language Model, with optional open-vocabulary object grounding via **YOLOE**.
 
-> **First public open-source example we are aware of** that combines `DeepStream + YOLOE (open-vocabulary detection/segmentation) + a VLM` in a single GStreamer pipeline. Prior art check: no repo found on GitHub/Google matching this combination.
+> **First open-source example** that combines `DeepStream + YOLOE (open-vocabulary detection/segmentation) + a VLM` in a single GStreamer pipeline.
 
 ---
 
@@ -28,8 +28,6 @@ uridecodebin → nvstreammux → [nvinfer(YOLO)] → nvvideoconvert → nvvllmvl
                     into VLM user_prompt                  (+ optional OSD MP4)
 ```
 
-![Pipeline](assets/images/pipeline.png)
-
 ---
 
 ## Sample output
@@ -44,7 +42,7 @@ Left: middle frame of a 5-second segment. Right: VLM scene summary + YOLO-ground
 
 ---
 
-## Quick start (0 → 100)
+## Quickstart
 
 Prerequisites: Docker w/ NVIDIA Container Toolkit, NVIDIA driver 580+, an RTX 4090 or equivalent Ada/Ampere GPU (≥24 GB VRAM), an [NGC API key](https://ngc.nvidia.com) for the FP8 VLM checkpoint download.
 
