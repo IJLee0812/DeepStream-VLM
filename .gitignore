@@ -2,13 +2,22 @@
 models/hub/
 models/*.onnx
 models/*.engine
+models/*.pt
+models/*.ts
+models/*.labels.txt
 *.bin
 *.safetensors
 *.gguf
+*.ts
 
 # Runtime outputs
 results/
 logs/
+
+# Test artifacts
+.coverage
+.coverage.*
+htmlcov/
 
 # Python
 __pycache__/
@@ -29,3 +38,6 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# Third-party clones
+reference/

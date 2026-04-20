@@ -23,7 +23,6 @@ import pytest
 WORKSPACE = Path("/workspace")
 MAIN_PY = WORKSPACE / "main.py"
 SAMPLE_MP4 = WORKSPACE / "assets" / "videos" / "sample.mp4"
-SAMPLE_DETECT_MP4 = WORKSPACE / "assets" / "videos" / "sample_detect.mp4"
 CONFIG_DRIVING = WORKSPACE / "configs" / "config_driving_scene.yaml"
 CONFIG_DETECT = WORKSPACE / "configs" / "config_driving_scene_with_detect.yaml"
 
@@ -116,7 +115,7 @@ class TestDetectModePipeline:
     def test_detect_dry_run_exits_zero(self, tmp_path):
         """VLM+Detect pipeline with --dry-run completes without error."""
         result = _run_pipeline(
-            str(SAMPLE_DETECT_MP4),
+            str(SAMPLE_MP4),
             "-c",
             str(CONFIG_DETECT),
             "--detect",
@@ -130,7 +129,7 @@ class TestDetectModePipeline:
         """Detect mode --output creates a JSON results file."""
         out = tmp_path / "output_detect.json"
         _run_pipeline(
-            str(SAMPLE_DETECT_MP4),
+            str(SAMPLE_MP4),
             "-c",
             str(CONFIG_DETECT),
             "--detect",
