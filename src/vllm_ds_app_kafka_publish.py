@@ -73,7 +73,13 @@ class VLMKafkaSignalPublisher:
     available.
     """
 
-    def __init__(self, kafka_config: dict, topic: str, dry_run: bool = False):
+    def __init__(
+        self,
+        kafka_config: dict,
+        topic: str,
+        dry_run: bool = False,
+        detect_hints: bool = False,
+    ):
         """
         Initialize Kafka publisher.
 
@@ -81,9 +87,11 @@ class VLMKafkaSignalPublisher:
             kafka_config: Kafka connection configuration
             topic: Topic name to publish to
             dry_run: If True, print messages instead of sending to Kafka
+            detect_hints: If True, include detect_hints flag in message metadata
         """
         self.topic = topic
         self.dry_run = dry_run
+        self.detect_hints = detect_hints
         self.producer: KafkaProducer | None = None
         self.messages_sent = 0
         self.messages_failed = 0
@@ -141,7 +149,11 @@ class VLMKafkaSignalPublisher:
                 "duration": end_time - start_time,
             },
             "result": result_text,
-            "metadata": {"source": "vllm-ds-plugin", "version": "1.0"},
+            "metadata": {
+                "source": "vllm-ds-plugin",
+                "version": "1.0",
+                **({"detect_hints": True} if self.detect_hints else {}),
+            },
         }
 
         # Collect for JSON output
@@ -250,7 +262,9 @@ class VLMKafkaApp:
         self.seg_mode = seg_mode
 
         # Initialize Kafka publisher
-        self.kafka_publisher = VLMKafkaSignalPublisher(kafka_config, topic, dry_run)
+        self.kafka_publisher = VLMKafkaSignalPublisher(
+            kafka_config, topic, dry_run, detect_hints=bool(nvinfer_config)
+        )
 
     def bus_call(self, bus, message, loop):
         """Handle GStreamer bus messages"""

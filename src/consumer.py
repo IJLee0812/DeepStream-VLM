@@ -205,6 +205,8 @@ def main():
             print("\n  Metadata:")
             print(f"    Source: {data['metadata']['source']}")
             print(f"    Version: {data['metadata']['version']}")
+            if data["metadata"].get("detect_hints"):
+                print("    Mode: VLM + Detection Hints")
             print(f"    Publish Time: {data.get('timestamp', 'N/A')}")
             print("─" * 80)
 
