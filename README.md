@@ -163,8 +163,7 @@ DeepStream-VLM/
 │   ├── download_model.py                 # fetch yolo26 / yoloe weights
 │   ├── export_yolo26.py                  # closed-vocab ONNX export
 │   ├── export_yoloe.py                   # open-vocab detect ONNX export
-│   ├── export_yoloe_seg.py               # open-vocab seg ONNX + trtexec engine
-│   └── gen_desc_visuals.py               # build README desc images
+│   └── export_yoloe_seg.py               # open-vocab seg ONNX + trtexec engine
 ├── configs/
 │   ├── config_infer_yolo26.txt           # nvinfer: YOLO26 (closed)
 │   ├── config_infer_yolo26e.txt          # nvinfer: YOLOE detect (open)
