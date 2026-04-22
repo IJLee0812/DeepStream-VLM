@@ -351,6 +351,16 @@ class TestValidateDrivingSceneJson:
         assert ok is True
         assert verr is None
 
+    def test_import_error_fallback(self, monkeypatch):
+        """Returns (False, error_msg) gracefully when output_schema is absent."""
+        import sys
+
+        monkeypatch.delitem(sys.modules, "output_schema", raising=False)
+        monkeypatch.setitem(sys.modules, "output_schema", None)
+        ok, err = validate_driving_scene_json(self._valid_payload())
+        assert ok is False
+        assert err is not None
+
 
 # ── format_user_prompt ──
 

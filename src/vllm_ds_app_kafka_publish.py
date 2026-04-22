@@ -149,10 +149,11 @@ class VLMKafkaSignalPublisher:
         else:
             ok, _ = validate_driving_scene_json(parsed)
             json_valid = ok
-        if not json_valid and parse_err:
+        if not json_valid:
+            reason = parse_err or "schema validation failed"
             print(
                 f"VLMKafkaPublisher: json_valid=False for stream {stream_id} "
-                f"[{start_time:.2f}s-{end_time:.2f}s] — {parse_err}"
+                f"[{start_time:.2f}s-{end_time:.2f}s] — {reason}"
             )
 
         # Construct message
