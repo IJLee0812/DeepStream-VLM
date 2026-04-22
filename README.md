@@ -106,20 +106,20 @@ python3 main.py assets/videos/sample.mp4 \
 
 # YOLO26 detection → VLM grounded on 80 COCO classes
 python3 main.py assets/videos/sample.mp4 \
-    -c configs/config_driving_scene_with_detect.yaml --detect \
+    -c configs/config_driving_scene.yaml --detect \
     --output results/out.json \
     --kafka-bootstrap localhost:9092 --topic vlm-results
 
 # YOLOE detection → VLM grounded on your open-vocab class list
 python3 main.py assets/videos/sample.mp4 \
-    -c configs/config_driving_scene_with_detect.yaml --detect \
+    -c configs/config_driving_scene.yaml --detect \
     --detect-config configs/config_infer_yolo26e.txt \
     --output results/out.json \
     --kafka-bootstrap localhost:9092 --topic vlm-results
 
 # YOLOE segmentation → VLM grounding + visualization MP4 with instance masks
 python3 main.py assets/videos/sample.mp4 \
-    -c configs/config_driving_scene_with_detect.yaml --detect \
+    -c configs/config_driving_scene.yaml --detect \
     --detect-config configs/config_infer_yolo26e_seg.txt \
     --detect-output results/seg_osd.mp4 \
     --output results/out.json \
@@ -155,6 +155,7 @@ DeepStream-VLM/
 ├── plugin/
 │   ├── gstnvvllmvlm.py                   # GStreamer VLM plugin
 │   ├── vlm_utils.py                      # pure logic (host-testable)
+│   ├── output_schema.py                  # Pydantic schema for VLM output validation
 │   └── config_loader.py                  # YAML config singleton
 ├── src/
 │   ├── vllm_ds_app_kafka_publish.py      # pipeline builder + Kafka + OSD branch
@@ -168,7 +169,7 @@ DeepStream-VLM/
 │   ├── config_infer_yolo26.txt           # nvinfer: YOLO26 (closed)
 │   ├── config_infer_yolo26e.txt          # nvinfer: YOLOE detect (open)
 │   ├── config_infer_yolo26e_seg.txt      # nvinfer: YOLOE seg (open)
-│   └── config_driving_scene*.yaml        # VLM prompts + segment config
+│   └── config_driving_scene.yaml         # unified VLM prompt + segment config (pure VLM & --detect)
 ├── lib/
 │   ├── libnvdsinfer_custom_impl_Yolo.so          # YOLO bbox parser (DS 9.0)
 │   └── libnvdsinfer_custom_impl_Yolo_seg.so      # YOLO seg parser (DS 9.0)
@@ -186,7 +187,7 @@ DeepStream-VLM/
 # host — unit + integration, no GPU/Docker needed
 uv venv .venv --python 3.10
 uv pip install --python .venv/bin/python pytest pytest-mock pytest-cov PyYAML
-.venv/bin/pytest tests/unit tests/integration -q   # 196 tests, <1s
+.venv/bin/pytest tests/unit tests/integration -q   # 238 tests, ~0.2s
 
 # full suite inside Docker
 pytest tests/ -v
