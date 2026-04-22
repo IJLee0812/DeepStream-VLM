@@ -6,8 +6,10 @@ making them testable on any host machine without a GPU environment.
 Extracted from gstnvvllmvlm.py to enable unit testing outside Docker.
 """
 
+import json
 import logging
 import os
+import re
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -24,52 +26,123 @@ YOLO26_CLASS_MAPPING = {
     11: "Trafficsign",
 }
 
+# Vulnerable Road User labels (from YOLO26 mapping / YOLOE custom labels).
+# For VRUs we preserve lateral position + proximity via bbox-derived zone
+# text rather than aggregate counts, because lateral position is
+# safety-relevant for AV perception.
+VRU_CLASSES = {"Pedestrian", "Bike", "Motorcycle"}
+
+# Lateral zone boundaries by bbox x_center (normalized [0, 1]).
+# Thresholds are heuristic defaults tuned for a standard front-camera FoV
+# (~60-90 deg) and may need adjustment for wide-angle / telephoto setups.
+# Format: (upper_bound, zone_label). First match wins.
+ZONE_THRESHOLDS = (
+    (0.2, "left-edge"),
+    (0.4, "left"),
+    (0.6, "center"),
+    (0.8, "right"),
+    (float("inf"), "right-edge"),
+)
+
+# Proximity buckets by bbox height (normalized [0, 1]).
+# Heuristic: adult pedestrian ~1.7m tall fills >35% of frame height when
+# within ~5m; <10% around 15m.  Format: (lower_bound, proximity_label).
+# First match wins; thresholds evaluated in descending order.
+PROXIMITY_THRESHOLDS = (
+    (0.35, "near"),
+    (0.1, "mid"),
+    (0.0, "far"),
+)
+
+
+def _bbox_to_zone(bbox: tuple[float, float, float, float]) -> tuple[str, str]:
+    """Map a normalized (x1, y1, x2, y2) bbox to (lateral_zone, proximity).
+
+    Zones are coarse textual buckets so the VLM can reason spatially
+    without being anchored to raw coordinates. See ``ZONE_THRESHOLDS`` and
+    ``PROXIMITY_THRESHOLDS`` for the thresholds.
+    """
+    x1, y1, x2, y2 = bbox
+    x_center = (x1 + x2) / 2.0
+    height = max(0.0, y2 - y1)
+
+    zone = next(label for upper, label in ZONE_THRESHOLDS if x_center < upper)
+    proximity = next(label for lower, label in PROXIMITY_THRESHOLDS if height >= lower)
+    return zone, proximity
+
 
 def format_detection_hints(
     frames,
     *,
     enabled: bool,
-    include_conf: bool = True,
-    include_bbox: bool = True,
-    max_objects: int = 10,
     detector_name: str = "YOLO26",
 ) -> str:
-    """Format detection results as compact text hints for VLM.
+    """Format detection results as token-efficient text hints for VLM.
+
+    Aggregates detections across the segment rather than dumping per-frame
+    bboxes, and emits VRU positions as coarse zone labels.
+
+    Output shape when detections exist::
+
+        [Auxiliary object cues from <detector> - may be incomplete or noisy]
+        Object counts across N frames: Car x 14, Bus x 3, ...
+        VRU positions: Pedestrian x 3 (left-edge, mid), Motorcycle x 1 (center, near), ...
+
+    Either line may be absent when its category is empty.
 
     Args:
-        frames: List of objects with a ``detections`` attribute.
-            Each detection is a dict with keys: label, confidence, bbox.
+        frames: List of objects with a ``detections`` attribute. Each
+            detection is a dict with keys: label, confidence, bbox.
+            Detections are assumed to already be filtered by
+            ``min_confidence`` via ``collect_detections``.
         enabled: Master switch. Returns "" immediately when False.
-        include_conf: Include confidence score in output.
-        include_bbox: Include normalized [0,1] bounding box in output.
-        max_objects: Max detections per frame (top-N by confidence).
-        detector_name: Name shown in the hints header (e.g. "YOLOE-26").
+        detector_name: Name shown in the hints header.
 
     Returns:
-        Formatted hint string, or "" if disabled / no detections.
+        Formatted hint string, or "" when disabled / no detections.
     """
     if not enabled:
         return ""
-    lines: list[str] = []
-    for i, frame in enumerate(frames):
-        dets = getattr(frame, "detections", [])
-        if not dets:
-            continue
-        dets = sorted(dets, key=lambda d: d["confidence"], reverse=True)
-        dets = dets[:max_objects]
-        parts: list[str] = []
-        for d in dets:
-            s = d["label"]
-            if include_conf:
-                s += f"({d['confidence']})"
-            if include_bbox:
-                b = d["bbox"]
-                s += f" [{b[0]},{b[1]},{b[2]},{b[3]}]"
-            parts.append(s)
-        lines.append(f"F{i}: {', '.join(parts)}")
-    if not lines:
+
+    num_frames = len(frames)
+    if num_frames == 0:
         return ""
-    return f"[Object detection hints from {detector_name}]\n" + "\n".join(lines)
+
+    non_vru_counts: dict[str, int] = {}
+    vru_buckets: dict[tuple[str, str, str], int] = {}
+
+    for frame in frames:
+        for det in getattr(frame, "detections", []):
+            label = det["label"]
+            if label in VRU_CLASSES:
+                zone, prox = _bbox_to_zone(det["bbox"])
+                key = (label, zone, prox)
+                vru_buckets[key] = vru_buckets.get(key, 0) + 1
+            else:
+                non_vru_counts[label] = non_vru_counts.get(label, 0) + 1
+
+    if not non_vru_counts and not vru_buckets:
+        return ""
+
+    lines = [f"[Auxiliary object cues from {detector_name} - may be incomplete or noisy]"]
+
+    if non_vru_counts:
+        parts = [
+            f"{label} x {cnt}"
+            for label, cnt in sorted(non_vru_counts.items(), key=lambda kv: (-kv[1], kv[0]))
+        ]
+        lines.append(f"Object counts across {num_frames} frames: " + ", ".join(parts))
+
+    if vru_buckets:
+        parts = [
+            f"{label} x {cnt} ({zone}, {prox})"
+            for (label, zone, prox), cnt in sorted(
+                vru_buckets.items(), key=lambda kv: (-kv[1], kv[0])
+            )
+        ]
+        lines.append("VRU positions: " + ", ".join(parts))
+
+    return "\n".join(lines)
 
 
 def format_user_prompt(
@@ -278,3 +351,56 @@ def is_segmentation_config(nvinfer_config: str) -> bool:
     """Return True if the nvinfer config declares network-type=3 (seg)."""
     props = parse_nvinfer_config(nvinfer_config)
     return props.get("network-type") == "3" or props.get("output-instance-mask") == "1"
+
+
+# Matches a fenced code block like ```json ... ``` or ``` ... ``` (tolerant
+# to whitespace and missing language tag).
+_CODE_FENCE_RE = re.compile(r"```(?:json)?\s*([\s\S]+?)\s*```", re.IGNORECASE)
+
+
+def parse_vlm_json(text: str) -> tuple[dict | None, str | None]:
+    """Parse VLM output into a dict, stripping markdown code fences first.
+
+    Returns (parsed_dict, None) on success, or (None, error_message) on
+    failure. Never raises.
+    """
+    if not text or not isinstance(text, str):
+        return None, "empty or non-string input"
+
+    stripped = text.strip()
+    match = _CODE_FENCE_RE.search(stripped)
+    candidate = match.group(1).strip() if match else stripped
+
+    try:
+        data = json.loads(candidate)
+    except json.JSONDecodeError as e:
+        return None, f"JSONDecodeError: {e.msg} (line {e.lineno}, col {e.colno})"
+
+    if not isinstance(data, dict):
+        return None, f"expected JSON object, got {type(data).__name__}"
+    return data, None
+
+
+def validate_driving_scene_json(data: dict) -> tuple[bool, str | None]:
+    """Validate a parsed dict against the DrivingSceneResult schema.
+
+    Import is deferred so this module stays importable when pydantic is
+    absent (e.g. lean unit-test environments without extras installed).
+
+    Returns (True, None) on valid, (False, error_message) otherwise.
+    """
+    try:
+        from output_schema import DrivingSceneResult
+    except ImportError as e:
+        return False, f"output_schema import failed: {e}"
+
+    try:
+        from pydantic import ValidationError
+    except ImportError as e:
+        return False, f"pydantic not installed: {e}"
+
+    try:
+        DrivingSceneResult.model_validate(data)
+    except ValidationError as e:
+        return False, f"ValidationError: {e.error_count()} issue(s)"
+    return True, None

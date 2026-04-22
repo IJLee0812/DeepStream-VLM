@@ -87,9 +87,6 @@ video:
   default_fps_denominator: 1
 detection_hints:
   enabled: true
-  include_bbox: true
-  include_confidence: true
-  max_objects_per_frame: 3
   min_confidence: 0.5
 """
     p = tmp_path / "test_config.yaml"

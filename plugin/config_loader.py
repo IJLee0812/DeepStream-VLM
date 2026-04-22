@@ -182,22 +182,13 @@ class Config:
         )
         return (numerator, denominator)
 
-    # Detection hints properties (YOLO26)
+    # Detection hints properties (aggregated segment-level format).
+    # include_bbox / include_confidence / max_objects_per_frame were
+    # removed in favor of the always-on aggregated format; only the master
+    # switch and the confidence floor remain tunable.
     @property
     def detection_hints_enabled(self) -> bool:
         return self._config.get("detection_hints", {}).get("enabled", False)
-
-    @property
-    def detection_hints_include_bbox(self) -> bool:
-        return self._config.get("detection_hints", {}).get("include_bbox", True)
-
-    @property
-    def detection_hints_include_confidence(self) -> bool:
-        return self._config.get("detection_hints", {}).get("include_confidence", True)
-
-    @property
-    def detection_hints_max_objects(self) -> int:
-        return self._config.get("detection_hints", {}).get("max_objects_per_frame", 10)
 
     @property
     def detection_hints_min_confidence(self) -> float:

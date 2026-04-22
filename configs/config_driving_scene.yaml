@@ -1,6 +1,10 @@
-# Driving Scene Description (English) — Cosmos-Reason2-8B FP8
-# Front-camera driving video segment analysis (Pure VLM, no detection).
-# Use with: python3 main.py video.mp4 -c configs/config_driving_scene.yaml --dry-run
+# Driving Scene Description - Cosmos-Reason2-8B FP8
+# Unified config: Pure VLM by default; auto-augments with detection hints
+# when --detect is enabled. {detection_hints} renders empty when no
+# detections are present, so the same file serves both modes.
+# Usage:
+#   Pure VLM:         python3 main.py video.mp4 -c configs/config_driving_scene.yaml
+#   VLM + Detection:  python3 main.py video.mp4 -c configs/config_driving_scene.yaml --detect
 
 model:
   path: "/workspace/models/hub/cosmos-reason2-8b_v1208-fp8-static-kv8"
@@ -25,7 +29,7 @@ inference:
   repetition_penalty: 1.1
 
   system_prompt: |
-    You are an expert autonomous vehicle front-camera video analyst.
+    You are an expert autonomous-vehicle front-camera video analyst.
     Given a driving video segment, provide a detailed scene description.
 
     Respond ONLY with valid JSON in the following format:
@@ -51,10 +55,26 @@ inference:
       "potential_risks": ["list of notable risk factors in English, or empty if none"]
     }
 
+    Regarding auxiliary object cues (when present in the user message):
+    - They are best-effort outputs from an external object detector and may
+      be incomplete, noisy, or mislabeled.
+    - Trust your own visual perception first. Use the cues only to
+      sanity-check or refine your "key_objects" list - never include an
+      object solely because the cues mention it if you cannot actually see
+      it in the video.
+    - Do NOT let the cues influence non-object fields (weather,
+      road_features, visibility, traffic_density, ego_vehicle,
+      potential_risks). Derive those purely from the video frames.
+
   user_prompt: |
     Analyze this {num_frames}-frame driving video segment from front camera
     (stream {stream_id}, timestamps {timestamps}).
-    Describe the scene in detail following the JSON format strictly.
+
+    {detection_hints}
+
+    Describe the scene based on what you observe in the video. The
+    auxiliary cues above (if any) are supplementary hints only - your own
+    observation takes precedence. Respond with the JSON schema strictly.
 
 pipeline:
   queue_maxsize: 8
@@ -63,3 +83,7 @@ pipeline:
 video:
   default_fps_numerator: 30
   default_fps_denominator: 1
+
+detection_hints:
+  enabled: true
+  min_confidence: 0.3

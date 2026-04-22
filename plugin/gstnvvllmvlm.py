@@ -420,11 +420,8 @@ class NvVllmVLM(GstBase.BaseTransform):
         # Per-stream prompt overrides
         self._stream_prompts: dict[int, dict[str, Any]] = config.stream_prompts
 
-        # Detection hints config (YOLO26 legacy hardcoded OR YOLOE runtime labels)
+        # Detection hints config — aggregated segment format.
         self._hints_enabled = config.detection_hints_enabled
-        self._hints_include_bbox = config.detection_hints_include_bbox
-        self._hints_include_conf = config.detection_hints_include_confidence
-        self._hints_max_objects = config.detection_hints_max_objects
         self._hints_min_confidence = config.detection_hints_min_confidence
 
         # Class mapping: env VLM_DETECT_LABELFILE is set by the app when
@@ -887,13 +884,10 @@ class NvVllmVLM(GstBase.BaseTransform):
         return get_stream_config(self._stream_prompts, stream_id, setting, default)
 
     def _format_detection_hints(self, frames) -> str:
-        """Format YOLO26 detection results as compact text hints for VLM."""
+        """Format YOLO detection results as aggregated text hints for VLM."""
         return format_detection_hints(
             frames,
             enabled=self._hints_enabled,
-            include_conf=self._hints_include_conf,
-            include_bbox=self._hints_include_bbox,
-            max_objects=self._hints_max_objects,
             detector_name=self._detector_name,
         )
 

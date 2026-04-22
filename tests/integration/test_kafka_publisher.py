@@ -70,6 +70,59 @@ class TestOnVlmResult:
         publisher.on_vlm_result(None, 1, 5.0, 10.0, "second")
         assert len(publisher._collected_results) == 2
 
+    def test_json_valid_false_for_plain_text(self, publisher):
+        publisher.on_vlm_result(None, 0, 0.0, 5.0, "just a plain sentence")
+        assert publisher._collected_results[0]["metadata"]["json_valid"] is False
+
+    def test_json_valid_false_for_schema_mismatch(self, publisher):
+        """Parseable JSON that misses required DrivingSceneResult fields is invalid."""
+        publisher.on_vlm_result(None, 0, 0.0, 5.0, '{"scene_summary": "x"}')
+        assert publisher._collected_results[0]["metadata"]["json_valid"] is False
+
+    def test_json_valid_true_for_valid_schema(self, publisher):
+        payload = json.dumps(
+            {
+                "scene_summary": "An intersection with light traffic.",
+                "road_type": "intersection",
+                "road_features": {
+                    "num_lanes": 4,
+                    "lane_markings": "dashed_white",
+                    "road_surface": "dry_asphalt",
+                    "road_condition": "good",
+                },
+                "weather": "clear",
+                "visibility": "good",
+                "traffic_density": "moderate",
+                "key_objects": [{"type": "vehicle", "description": "sedan"}],
+                "ego_vehicle": {"action": "stopped", "estimated_speed": "stationary"},
+                "potential_risks": [],
+            }
+        )
+        publisher.on_vlm_result(None, 0, 0.0, 5.0, payload)
+        assert publisher._collected_results[0]["metadata"]["json_valid"] is True
+
+    def test_json_valid_true_through_code_fence(self, publisher):
+        """Fenced ```json ... ``` output still validates."""
+        payload = {
+            "scene_summary": "x",
+            "road_type": "urban_road",
+            "road_features": {
+                "num_lanes": 2,
+                "lane_markings": "none",
+                "road_surface": "concrete",
+                "road_condition": "good",
+            },
+            "weather": "clear",
+            "visibility": "good",
+            "traffic_density": "sparse",
+            "key_objects": [],
+            "ego_vehicle": {"action": "stopped", "estimated_speed": "stationary"},
+            "potential_risks": [],
+        }
+        text = "```json\n" + json.dumps(payload) + "\n```"
+        publisher.on_vlm_result(None, 0, 0.0, 5.0, text)
+        assert publisher._collected_results[0]["metadata"]["json_valid"] is True
+
 
 class TestPublishDryRun:
     def test_increments_messages_sent(self, publisher, capsys):
