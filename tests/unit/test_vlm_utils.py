@@ -1,10 +1,14 @@
 """Tests for plugin/vlm_utils.py — pure logic, no GStreamer/CUDA deps."""
 
+import json
+import os
 from types import SimpleNamespace
 
 import pytest
 from vlm_utils import (
+    VRU_CLASSES,
     YOLO26_CLASS_MAPPING,
+    _bbox_to_zone,
     collect_detections,
     compute_sample_interval_ns,
     compute_step_ns,
@@ -14,7 +18,9 @@ from vlm_utils import (
     is_segmentation_config,
     load_class_mapping,
     parse_nvinfer_config,
+    parse_vlm_json,
     to_uri,
+    validate_driving_scene_json,
 )
 
 # ── Helpers ──
@@ -51,6 +57,8 @@ class TestYOLO26ClassMapping:
 
 
 class TestFormatDetectionHints:
+    """Tests for the aggregated, VRU-zone detection-hint format."""
+
     def test_disabled_returns_empty(self):
         frames = [_make_frame([_make_detection("Car", 0.9, (0.1, 0.2, 0.3, 0.4))])]
         assert format_detection_hints(frames, enabled=False) == ""
@@ -62,75 +70,286 @@ class TestFormatDetectionHints:
         frames = [_make_frame([]), _make_frame([])]
         assert format_detection_hints(frames, enabled=True) == ""
 
-    def test_single_detection_full_format(self):
-        frames = [_make_frame([_make_detection("Car", 0.95, (0.1, 0.2, 0.8, 0.9))])]
-        result = format_detection_hints(frames, enabled=True)
-        assert result == ("[Object detection hints from YOLO26]\nF0: Car(0.95) [0.1,0.2,0.8,0.9]")
-
-    def test_confidence_sort_descending(self):
-        dets = [
-            _make_detection("Car", 0.5, (0, 0, 1, 1)),
-            _make_detection("Truck", 0.9, (0, 0, 1, 1)),
-            _make_detection("Bus", 0.7, (0, 0, 1, 1)),
-        ]
-        result = format_detection_hints([_make_frame(dets)], enabled=True)
-        lines = result.split("\n")
-        # F0 line should have Truck first (0.9), then Bus (0.7), then Car (0.5)
-        assert "Truck" in lines[1]
-        f0_parts = lines[1].split(", ")
-        assert "Truck" in f0_parts[0]
-        assert "Bus" in f0_parts[1]
-        assert "Car" in f0_parts[2]
-
-    def test_max_objects_limit(self):
-        dets = [_make_detection(f"Obj{i}", 0.9 - i * 0.1, (0, 0, 1, 1)) for i in range(5)]
-        result = format_detection_hints([_make_frame(dets)], enabled=True, max_objects=2)
-        lines = result.split("\n")
-        # F0 should only have 2 items (split by ", " which separates detections)
-        f0_line = lines[1].removeprefix("F0: ")
-        assert len(f0_line.split("], ")) == 2
-
-    def test_bbox_excluded(self):
-        frames = [_make_frame([_make_detection("Car", 0.9, (0.1, 0.2, 0.3, 0.4))])]
-        result = format_detection_hints(frames, enabled=True, include_bbox=False)
-        assert "[" not in result.split("\n")[1] or "YOLO26]" in result.split("\n")[0]
-        assert "0.1" not in result
-
-    def test_confidence_excluded(self):
-        frames = [_make_frame([_make_detection("Car", 0.9, (0.1, 0.2, 0.3, 0.4))])]
-        result = format_detection_hints(frames, enabled=True, include_conf=False)
-        assert "(0.9)" not in result
-        assert "Car" in result
-
-    def test_both_excluded_label_only(self):
-        frames = [_make_frame([_make_detection("Truck", 0.8, (0.1, 0.2, 0.3, 0.4))])]
-        result = format_detection_hints(
-            frames, enabled=True, include_conf=False, include_bbox=False
-        )
-        assert "F0: Truck" in result
-        assert "(" not in result.split("\n")[1]
-
-    def test_multi_frame_format(self):
-        frames = [
-            _make_frame([_make_detection("Car", 0.9, (0, 0, 1, 1))]),
-            _make_frame([]),  # empty — should be skipped
-            _make_frame([_make_detection("Bus", 0.8, (0, 0, 1, 1))]),
-        ]
-        result = format_detection_hints(frames, enabled=True)
-        assert "F0:" in result
-        assert "F1:" not in result  # empty frame skipped
-        assert "F2:" in result
+    def test_frames_without_detections_attr(self):
+        """Frames without .detections attribute should be handled gracefully."""
+        frame = SimpleNamespace()
+        assert format_detection_hints([frame], enabled=True) == ""
 
     def test_header_format(self):
         frames = [_make_frame([_make_detection("Car", 0.9, (0, 0, 1, 1))])]
         result = format_detection_hints(frames, enabled=True)
-        assert result.startswith("[Object detection hints from YOLO26]\n")
+        assert result.startswith("[Auxiliary object cues from YOLO26 - may be incomplete or noisy]")
 
-    def test_frames_without_detections_attr(self):
-        """Frames without .detections attribute should be handled gracefully."""
-        frame = SimpleNamespace()  # no detections attr
-        result = format_detection_hints([frame], enabled=True)
-        assert result == ""
+    def test_non_vru_aggregated_count(self):
+        """Non-VRU detections are aggregated as `label x total_count`."""
+        frames = [
+            _make_frame([_make_detection("Car", 0.9, (0.1, 0.2, 0.3, 0.4))]),
+            _make_frame(
+                [
+                    _make_detection("Car", 0.85, (0.1, 0.2, 0.3, 0.4)),
+                    _make_detection("Bus", 0.8, (0.5, 0.1, 0.7, 0.3)),
+                ]
+            ),
+        ]
+        result = format_detection_hints(frames, enabled=True)
+        lines = result.split("\n")
+        assert lines[1] == "Object counts across 2 frames: Car x 2, Bus x 1"
+
+    def test_non_vru_sorted_by_count_desc(self):
+        frames = [
+            _make_frame(
+                [
+                    _make_detection("Car", 0.9, (0, 0, 1, 1)),
+                    _make_detection("Car", 0.9, (0, 0, 1, 1)),
+                    _make_detection("Truck", 0.9, (0, 0, 1, 1)),
+                    _make_detection("Bus", 0.9, (0, 0, 1, 1)),
+                    _make_detection("Bus", 0.9, (0, 0, 1, 1)),
+                    _make_detection("Bus", 0.9, (0, 0, 1, 1)),
+                ]
+            )
+        ]
+        result = format_detection_hints(frames, enabled=True)
+        counts_line = result.split("\n")[1]
+        # Bus (3) > Car (2) > Truck (1)
+        assert counts_line.index("Bus") < counts_line.index("Car") < counts_line.index("Truck")
+
+    def test_vru_zone_bucketed(self):
+        """Same VRU class at the same (zone, proximity) collapses into one bucket."""
+        frames = [
+            _make_frame([_make_detection("Pedestrian", 0.9, (0.05, 0.2, 0.15, 0.7))]),
+            _make_frame([_make_detection("Pedestrian", 0.88, (0.05, 0.2, 0.15, 0.7))]),
+            _make_frame([_make_detection("Motorcycle", 0.85, (0.45, 0.25, 0.55, 0.7))]),
+        ]
+        result = format_detection_hints(frames, enabled=True)
+        vru_line = [ln for ln in result.split("\n") if ln.startswith("VRU positions")][0]
+        assert "Pedestrian x 2 (left-edge, near)" in vru_line
+        assert "Motorcycle x 1 (center, near)" in vru_line
+
+    def test_vru_separate_buckets_for_different_zones(self):
+        """Different lateral zones should yield separate VRU buckets."""
+        frames = [
+            _make_frame(
+                [
+                    _make_detection("Pedestrian", 0.9, (0.85, 0.4, 0.95, 0.6)),
+                    _make_detection("Pedestrian", 0.9, (0.05, 0.4, 0.15, 0.6)),
+                ]
+            )
+        ]
+        result = format_detection_hints(frames, enabled=True)
+        vru_line = [ln for ln in result.split("\n") if ln.startswith("VRU positions")][0]
+        assert "right-edge" in vru_line
+        assert "left-edge" in vru_line
+
+    def test_vru_and_non_vru_coexist(self):
+        frames = [
+            _make_frame(
+                [
+                    _make_detection("Car", 0.9, (0.4, 0.3, 0.6, 0.7)),
+                    _make_detection("Pedestrian", 0.85, (0.05, 0.2, 0.15, 0.7)),
+                ]
+            )
+        ]
+        result = format_detection_hints(frames, enabled=True)
+        assert "Object counts across 1 frames: Car x 1" in result
+        assert "VRU positions:" in result
+        assert "Pedestrian" in result
+
+    def test_frame_count_reflects_input_length(self):
+        """Frame count in header equals len(frames), even when some are empty."""
+        frames = [
+            _make_frame([_make_detection("Car", 0.9, (0, 0, 1, 1))]),
+            _make_frame([]),
+            _make_frame([_make_detection("Bus", 0.9, (0, 0, 1, 1))]),
+            _make_frame([]),
+            _make_frame([]),
+        ]
+        result = format_detection_hints(frames, enabled=True)
+        assert "across 5 frames" in result
+
+    def test_only_vru_no_non_vru_line(self):
+        frames = [_make_frame([_make_detection("Bike", 0.9, (0.3, 0.3, 0.45, 0.7))])]
+        result = format_detection_hints(frames, enabled=True)
+        assert "Object counts across" not in result
+        assert "VRU positions:" in result
+
+    def test_only_non_vru_no_vru_line(self):
+        frames = [_make_frame([_make_detection("Trafficlight", 0.9, (0.4, 0.1, 0.5, 0.2))])]
+        result = format_detection_hints(frames, enabled=True)
+        assert "Object counts across 1 frames: Trafficlight x 1" in result
+        assert "VRU positions:" not in result
+
+
+class TestVruClasses:
+    def test_vru_set_contains_expected_labels(self):
+        assert {"Pedestrian", "Bike", "Motorcycle"} == VRU_CLASSES
+
+    def test_all_vru_labels_present_in_yolo26_mapping(self):
+        yolo26_labels = set(YOLO26_CLASS_MAPPING.values())
+        assert VRU_CLASSES.issubset(yolo26_labels)
+
+
+class TestBboxToZone:
+    """Zone and proximity classification from normalized bbox."""
+
+    @pytest.mark.parametrize(
+        "x_center,expected_zone",
+        [
+            (0.05, "left-edge"),
+            (0.19, "left-edge"),
+            (0.2, "left"),  # exactly 0.2 is the boundary → left
+            (0.35, "left"),
+            (0.4, "center"),
+            (0.5, "center"),
+            (0.6, "right"),
+            (0.75, "right"),
+            (0.8, "right-edge"),
+            (0.99, "right-edge"),
+        ],
+    )
+    def test_zone_boundaries(self, x_center, expected_zone):
+        bbox = (x_center - 0.01, 0.3, x_center + 0.01, 0.5)
+        zone, _ = _bbox_to_zone(bbox)
+        assert zone == expected_zone
+
+    @pytest.mark.parametrize(
+        "height,expected_prox",
+        [
+            (0.5, "near"),
+            (0.36, "near"),
+            (0.35, "near"),  # exactly 0.35 → still near (>= 0.35 threshold)
+            (0.34, "mid"),
+            (0.2, "mid"),
+            (0.1, "mid"),  # exactly 0.1 → still mid
+            (0.09, "far"),
+            (0.02, "far"),
+            (0.0, "far"),
+        ],
+    )
+    def test_proximity_boundaries(self, height, expected_prox):
+        # Center the bbox horizontally so zone is "center"
+        bbox = (0.45, 0.5 - height / 2, 0.55, 0.5 + height / 2)
+        _, prox = _bbox_to_zone(bbox)
+        assert prox == expected_prox
+
+    def test_combined_zone_and_proximity(self):
+        # Large bbox on left edge → (left-edge, near)
+        bbox = (0.02, 0.1, 0.15, 0.9)
+        zone, prox = _bbox_to_zone(bbox)
+        assert zone == "left-edge"
+        assert prox == "near"
+
+
+class TestParseVlmJson:
+    def test_raw_json_parsed(self):
+        data, err = parse_vlm_json('{"a": 1, "b": "x"}')
+        assert err is None
+        assert data == {"a": 1, "b": "x"}
+
+    def test_code_fenced_json_parsed(self):
+        text = '```json\n{"scene_summary": "test"}\n```'
+        data, err = parse_vlm_json(text)
+        assert err is None
+        assert data == {"scene_summary": "test"}
+
+    def test_code_fence_without_language_tag(self):
+        text = '```\n{"x": 1}\n```'
+        data, err = parse_vlm_json(text)
+        assert err is None
+        assert data == {"x": 1}
+
+    def test_code_fence_with_leading_whitespace(self):
+        text = '   ```json\n{"x": 1}\n```   '
+        data, err = parse_vlm_json(text)
+        assert err is None
+        assert data == {"x": 1}
+
+    def test_malformed_json_returns_error(self):
+        data, err = parse_vlm_json("{not valid json")
+        assert data is None
+        assert err is not None
+        assert "JSONDecode" in err
+
+    def test_empty_input_returns_error(self):
+        data, err = parse_vlm_json("")
+        assert data is None
+        assert err is not None
+
+    def test_non_string_input_returns_error(self):
+        data, err = parse_vlm_json(None)
+        assert data is None
+        assert err is not None
+
+    def test_non_object_json_returns_error(self):
+        """A top-level JSON array is not a valid VLM result."""
+        data, err = parse_vlm_json("[1, 2, 3]")
+        assert data is None
+        assert err is not None
+        assert "object" in err.lower()
+
+
+class TestValidateDrivingSceneJson:
+    """Schema validation against DrivingSceneResult."""
+
+    def _valid_payload(self) -> dict:
+        return {
+            "scene_summary": "An urban intersection with moderate traffic.",
+            "road_type": "intersection",
+            "road_features": {
+                "num_lanes": 4,
+                "lane_markings": "dashed_white",
+                "road_surface": "dry_asphalt",
+                "road_condition": "good",
+            },
+            "weather": "clear",
+            "visibility": "good",
+            "traffic_density": "moderate",
+            "key_objects": [{"type": "vehicle", "description": "sedan"}],
+            "ego_vehicle": {
+                "action": "stopped",
+                "estimated_speed": "stationary",
+            },
+            "potential_risks": ["pedestrian crossing"],
+        }
+
+    def test_valid_payload(self):
+        ok, err = validate_driving_scene_json(self._valid_payload())
+        assert ok is True
+        assert err is None
+
+    def test_missing_required_field(self):
+        payload = self._valid_payload()
+        del payload["weather"]
+        ok, err = validate_driving_scene_json(payload)
+        assert ok is False
+        assert err is not None
+
+    def test_empty_key_objects_valid(self):
+        """An empty key_objects list should still validate."""
+        payload = self._valid_payload()
+        payload["key_objects"] = []
+        ok, err = validate_driving_scene_json(payload)
+        assert ok is True
+
+    def test_extra_fields_allowed(self):
+        """extra='allow' keeps forward-compat on schema evolution."""
+        payload = self._valid_payload()
+        payload["future_field"] = "something"
+        ok, err = validate_driving_scene_json(payload)
+        assert ok is True
+
+    def test_wrong_type_rejected(self):
+        payload = self._valid_payload()
+        payload["key_objects"] = "not a list"
+        ok, err = validate_driving_scene_json(payload)
+        assert ok is False
+
+    def test_parse_and_validate_round_trip(self):
+        text = "```json\n" + json.dumps(self._valid_payload()) + "\n```"
+        data, perr = parse_vlm_json(text)
+        assert perr is None
+        ok, verr = validate_driving_scene_json(data)
+        assert ok is True
+        assert verr is None
 
 
 # ── format_user_prompt ──
@@ -372,6 +591,10 @@ class TestLoadClassMapping:
         result = load_class_mapping(str(labelfile))
         assert result == {0: "차량", 1: "보행자"}
 
+    @pytest.mark.skipif(
+        hasattr(os, "geteuid") and os.geteuid() == 0,
+        reason="chmod 0o000 does not restrict the root user (as in the Docker container)",
+    )
     def test_unreadable_file_falls_back_to_yolo26(self, tmp_path):
         """An IOError/PermissionError during open falls back to YOLO26 mapping."""
         labelfile = tmp_path / "labels.txt"
@@ -450,16 +673,16 @@ class TestIsSegmentationConfig:
 
 class TestFormatDetectionHintsDetectorName:
     def test_default_detector_name_yolo26(self):
-        frame = _make_frame([_make_detection("car", 0.9, (0.1, 0.2, 0.3, 0.4))])
+        frame = _make_frame([_make_detection("Car", 0.9, (0.1, 0.2, 0.3, 0.4))])
         out = format_detection_hints([frame], enabled=True)
-        assert "[Object detection hints from YOLO26]" in out
+        assert "[Auxiliary object cues from YOLO26 - may be incomplete or noisy]" in out
 
     def test_custom_detector_name(self):
-        frame = _make_frame([_make_detection("vehicle", 0.9, (0.1, 0.2, 0.3, 0.4))])
+        frame = _make_frame([_make_detection("Car", 0.9, (0.1, 0.2, 0.3, 0.4))])
         out = format_detection_hints([frame], enabled=True, detector_name="YOLOE-26")
-        assert "[Object detection hints from YOLOE-26]" in out
+        assert "[Auxiliary object cues from YOLOE-26 - may be incomplete or noisy]" in out
 
     def test_seg_detector_name(self):
-        frame = _make_frame([_make_detection("person", 0.8, (0.0, 0.0, 1.0, 1.0))])
+        frame = _make_frame([_make_detection("Car", 0.8, (0.0, 0.0, 1.0, 1.0))])
         out = format_detection_hints([frame], enabled=True, detector_name="YOLOE-26 Seg")
-        assert "[Object detection hints from YOLOE-26 Seg]" in out
+        assert "[Auxiliary object cues from YOLOE-26 Seg - may be incomplete or noisy]" in out

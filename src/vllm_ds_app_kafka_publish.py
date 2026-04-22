@@ -62,7 +62,9 @@ from vlm_utils import (  # noqa: E402
     is_segmentation_config,
     move_built_engine,
     parse_nvinfer_config,
+    parse_vlm_json,
     to_uri,
+    validate_driving_scene_json,
 )
 
 
@@ -139,6 +141,20 @@ class VLMKafkaSignalPublisher:
             end_time: Segment end time in seconds
             result_text: VLM inference result
         """
+        # Validate VLM output against the DrivingSceneResult schema.
+        # Invalid output is still published — flag-only, never dropped.
+        parsed, parse_err = parse_vlm_json(result_text)
+        if parsed is None:
+            json_valid = False
+        else:
+            ok, _ = validate_driving_scene_json(parsed)
+            json_valid = ok
+        if not json_valid and parse_err:
+            print(
+                f"VLMKafkaPublisher: json_valid=False for stream {stream_id} "
+                f"[{start_time:.2f}s-{end_time:.2f}s] — {parse_err}"
+            )
+
         # Construct message
         message = {
             "stream_id": stream_id,
@@ -153,6 +169,7 @@ class VLMKafkaSignalPublisher:
                 "source": "vllm-ds-plugin",
                 "version": "1.0",
                 **({"detect_hints": True} if self.detect_hints else {}),
+                "json_valid": json_valid,
             },
         }
 

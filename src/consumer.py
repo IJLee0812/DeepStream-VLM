@@ -207,6 +207,9 @@ def main():
             print(f"    Version: {data['metadata']['version']}")
             if data["metadata"].get("detect_hints"):
                 print("    Mode: VLM + Detection Hints")
+            if "json_valid" in data["metadata"]:
+                badge = "✓ JSON valid" if data["metadata"]["json_valid"] else "✗ JSON invalid"
+                print(f"    Schema: {badge}")
             print(f"    Publish Time: {data.get('timestamp', 'N/A')}")
             print("─" * 80)
 

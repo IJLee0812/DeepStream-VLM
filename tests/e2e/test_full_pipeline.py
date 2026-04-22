@@ -23,8 +23,10 @@ import pytest
 WORKSPACE = Path("/workspace")
 MAIN_PY = WORKSPACE / "main.py"
 SAMPLE_MP4 = WORKSPACE / "assets" / "videos" / "sample.mp4"
+# Unified config — same file drives both Pure VLM and VLM+Detect modes.
 CONFIG_DRIVING = WORKSPACE / "configs" / "config_driving_scene.yaml"
-CONFIG_DETECT = WORKSPACE / "configs" / "config_driving_scene_with_detect.yaml"
+# Detect mode requires the YOLO26 ONNX model to already be present.
+YOLO26_ONNX = WORKSPACE / "models" / "yolo26m.onnx"
 
 
 def _nvidia_gpu_available() -> bool:
@@ -56,6 +58,10 @@ requires_gstreamer = pytest.mark.skipif(
 requires_workspace = pytest.mark.skipif(
     not _IN_DOCKER_WORKSPACE,
     reason="Not running inside Docker workspace (/workspace/main.py not found)",
+)
+requires_yolo26m_onnx = pytest.mark.skipif(
+    not YOLO26_ONNX.exists(),
+    reason=f"Detect mode requires {YOLO26_ONNX} (export via scripts/export_yolo26.py)",
 )
 
 
@@ -111,17 +117,24 @@ class TestPureVLMPipeline:
 @requires_workspace
 @requires_gpu
 @requires_gstreamer
+@requires_yolo26m_onnx
 class TestDetectModePipeline:
+    # First run triggers a TRT engine build (several minutes) plus VLM
+    # model load and inference on all segments of the sample clip.
+    # Subsequent runs reuse the cached engine and are much faster.
+    DETECT_TIMEOUT_SEC = 1800
+
     def test_detect_dry_run_exits_zero(self, tmp_path):
         """VLM+Detect pipeline with --dry-run completes without error."""
         result = _run_pipeline(
             str(SAMPLE_MP4),
             "-c",
-            str(CONFIG_DETECT),
+            str(CONFIG_DRIVING),
             "--detect",
             "--output",
             str(tmp_path / "output.json"),
             "--dry-run",
+            timeout=self.DETECT_TIMEOUT_SEC,
         )
         assert result.returncode == 0, result.stderr
 
@@ -131,10 +144,11 @@ class TestDetectModePipeline:
         _run_pipeline(
             str(SAMPLE_MP4),
             "-c",
-            str(CONFIG_DETECT),
+            str(CONFIG_DRIVING),
             "--detect",
             "--output",
             str(out),
             "--dry-run",
+            timeout=self.DETECT_TIMEOUT_SEC,
         )
         assert out.exists()

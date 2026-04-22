@@ -48,9 +48,6 @@ class TestConfigDefaults:
     def test_detection_hints_defaults(self, empty_config_yaml):
         cfg = Config(empty_config_yaml)
         assert cfg.detection_hints_enabled is False
-        assert cfg.detection_hints_include_bbox is True
-        assert cfg.detection_hints_include_confidence is True
-        assert cfg.detection_hints_max_objects == 10
         assert cfg.detection_hints_min_confidence == 0.3
 
 
@@ -103,15 +100,12 @@ class TestConfigCustomValues:
     def test_detection_hints_custom(self, sample_config_yaml):
         cfg = Config(sample_config_yaml)
         assert cfg.detection_hints_enabled is True
-        assert cfg.detection_hints_include_bbox is True
-        assert cfg.detection_hints_include_confidence is True
-        assert cfg.detection_hints_max_objects == 3
         assert cfg.detection_hints_min_confidence == 0.5
 
     def test_no_hints_section_gives_defaults(self, config_no_hints):
         cfg = Config(config_no_hints)
         assert cfg.detection_hints_enabled is False
-        assert cfg.detection_hints_max_objects == 10
+        assert cfg.detection_hints_min_confidence == 0.3
 
 
 class TestConfigSingleton:
