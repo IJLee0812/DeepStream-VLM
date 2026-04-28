@@ -108,36 +108,38 @@ def format_detection_hints(
     if num_frames == 0:
         return ""
 
-    non_vru_counts: dict[str, int] = {}
-    vru_buckets: dict[tuple[str, str, str], int] = {}
+    non_vru_ids: dict[str, set] = {}
+    vru_buckets: dict[tuple[str, str, str], set] = {}
 
-    for frame in frames:
-        for det in getattr(frame, "detections", []):
+    for frame_idx, frame in enumerate(frames):
+        for det_idx, det in enumerate(getattr(frame, "detections", [])):
             label = det["label"]
+            track_id = det.get("track_id")
+            dedup_key = track_id if track_id is not None else (frame_idx, det_idx)
             if label in VRU_CLASSES:
                 zone, prox = _bbox_to_zone(det["bbox"])
-                key = (label, zone, prox)
-                vru_buckets[key] = vru_buckets.get(key, 0) + 1
+                bucket = (label, zone, prox)
+                vru_buckets.setdefault(bucket, set()).add(dedup_key)
             else:
-                non_vru_counts[label] = non_vru_counts.get(label, 0) + 1
+                non_vru_ids.setdefault(label, set()).add(dedup_key)
 
-    if not non_vru_counts and not vru_buckets:
+    if not non_vru_ids and not vru_buckets:
         return ""
 
     lines = [f"[Auxiliary object cues from {detector_name} - may be incomplete or noisy]"]
 
-    if non_vru_counts:
+    if non_vru_ids:
         parts = [
-            f"{label} x {cnt}"
-            for label, cnt in sorted(non_vru_counts.items(), key=lambda kv: (-kv[1], kv[0]))
+            f"{label} x {len(ids)}"
+            for label, ids in sorted(non_vru_ids.items(), key=lambda kv: (-len(kv[1]), kv[0]))
         ]
         lines.append(f"Object counts across {num_frames} frames: " + ", ".join(parts))
 
     if vru_buckets:
         parts = [
-            f"{label} x {cnt} ({zone}, {prox})"
-            for (label, zone, prox), cnt in sorted(
-                vru_buckets.items(), key=lambda kv: (-kv[1], kv[0])
+            f"{label} x {len(ids)} ({zone}, {prox})"
+            for (label, zone, prox), ids in sorted(
+                vru_buckets.items(), key=lambda kv: (-len(kv[1]), kv[0])
             )
         ]
         lines.append("VRU positions: " + ", ".join(parts))
@@ -254,6 +256,7 @@ def collect_detections(
                     "label": label,
                     "confidence": round(obj.confidence, 2),
                     "bbox": (x1, y1, x2, y2),
+                    "track_id": getattr(obj, "object_id", None),
                 }
             )
     return detections

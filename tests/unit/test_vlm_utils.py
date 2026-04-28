@@ -32,8 +32,8 @@ def _make_frame(detections=None):
     return SimpleNamespace(detections=detections or [])
 
 
-def _make_detection(label, confidence, bbox):
-    return {"label": label, "confidence": confidence, "bbox": bbox}
+def _make_detection(label, confidence, bbox, track_id=None):
+    return {"label": label, "confidence": confidence, "bbox": bbox, "track_id": track_id}
 
 
 # ── YOLO26_CLASS_MAPPING ──
@@ -178,6 +178,36 @@ class TestFormatDetectionHints:
         result = format_detection_hints(frames, enabled=True)
         assert "Object counts across 1 frames: Trafficlight x 1" in result
         assert "VRU positions:" not in result
+
+    def test_same_track_id_counts_once(self):
+        """Same track_id across frames → counted as 1 unique object."""
+        frames = [
+            _make_frame([_make_detection("Car", 0.9, (0.1, 0.2, 0.3, 0.4), track_id=7)]),
+            _make_frame([_make_detection("Car", 0.85, (0.1, 0.2, 0.3, 0.4), track_id=7)]),
+            _make_frame([_make_detection("Car", 0.88, (0.1, 0.2, 0.3, 0.4), track_id=7)]),
+        ]
+        result = format_detection_hints(frames, enabled=True)
+        assert "Car x 1" in result
+
+    def test_different_track_ids_count_separately(self):
+        """Different track_ids in same frame → each counted independently."""
+        frames = [
+            _make_frame([
+                _make_detection("Car", 0.9, (0.1, 0.2, 0.3, 0.4), track_id=1),
+                _make_detection("Car", 0.85, (0.5, 0.2, 0.7, 0.4), track_id=2),
+            ])
+        ]
+        result = format_detection_hints(frames, enabled=True)
+        assert "Car x 2" in result
+
+    def test_none_track_id_uses_frame_det_fallback(self):
+        """When track_id is None, each detection in each frame counts separately."""
+        frames = [
+            _make_frame([_make_detection("Car", 0.9, (0.1, 0.2, 0.3, 0.4))]),
+            _make_frame([_make_detection("Car", 0.85, (0.1, 0.2, 0.3, 0.4))]),
+        ]
+        result = format_detection_hints(frames, enabled=True)
+        assert "Car x 2" in result
 
 
 class TestVruClasses:
@@ -532,6 +562,17 @@ class TestCollectDetections:
     def test_empty_object_items(self):
         result = collect_detections([], YOLO26_CLASS_MAPPING, 0.25, 1920, 1080)
         assert result == []
+
+    def test_track_id_from_object_id(self):
+        obj = self._make_obj(2, 0.9, 100, 200, 50, 60)
+        obj.object_id = 42
+        result = collect_detections([obj], YOLO26_CLASS_MAPPING, 0.25, 1920, 1080)
+        assert result[0]["track_id"] == 42
+
+    def test_track_id_none_when_no_object_id(self):
+        objs = [self._make_obj(2, 0.9, 100, 200, 50, 60)]
+        result = collect_detections(objs, YOLO26_CLASS_MAPPING, 0.25, 1920, 1080)
+        assert result[0]["track_id"] is None
 
 
 # ── to_uri ──
