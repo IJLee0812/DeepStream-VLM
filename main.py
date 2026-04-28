@@ -13,7 +13,7 @@ import os
 import sys
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(ROOT, "plugin"))
+sys.path.insert(0, os.path.join(ROOT, "plugins"))
 sys.path.insert(0, os.path.join(ROOT, "src"))
 
 # Pre-parse -c/--config before any imports that trigger get_config()

@@ -2,7 +2,7 @@
 
 > Real-time video understanding pipeline powered by **NVIDIA DeepStream 9.0** and **Cosmos-Reason2-8B** Vision Language Model, with optional open-vocabulary object grounding via **YOLOE**.
 
-> **First open-source example** that combines `DeepStream + YOLOE (open-vocabulary detection/segmentation) + a VLM` in a single GStreamer pipeline.
+> **First open-source example** that combines `DeepStream + YOLOE (open-vocabulary detection/segmentation) + VLM` in a single GStreamer pipeline.
 
 ---
 
@@ -20,12 +20,12 @@ A GStreamer pipeline that splits a video stream into temporal windows (e.g. 5-se
 Pipeline topology:
 
 ```
-         ┌─ (no detector) ──────────────────────────────┐
-uridecodebin → nvstreammux → [nvinfer(YOLO)] → nvvideoconvert → nvvllmvlm (VLM)
-                                 │                                     │
-                                 ▼                                     ▼
-                    detection hints injected             Kafka publish + JSON
-                    into VLM user_prompt                  (+ optional OSD MP4)
+         ┌─ (no detector) ────────────────────────────────────────────┐
+uridecodebin → nvstreammux → [nvinfer(YOLO)] → [nvtracker] → nvvideoconvert → nvvllmvlm (VLM)
+                                 │                                               │
+                                 ▼                                               ▼
+                    detection hints injected                       Kafka publish + JSON
+                    into VLM user_prompt                            (+ optional OSD MP4)
 ```
 
 ---
@@ -152,11 +152,12 @@ YOLOE bakes arbitrary class-name embeddings into the detector head at export tim
 DeepStream-VLM/
 ├── main.py                               # entrypoint
 ├── docker-compose.yml                    # ds9-vlm-dev + Kafka + Zookeeper
-├── plugin/
+├── plugins/
 │   ├── gstnvvllmvlm.py                   # GStreamer VLM plugin
 │   ├── vlm_utils.py                      # pure logic (host-testable)
 │   ├── output_schema.py                  # Pydantic schema for VLM output validation
-│   └── config_loader.py                  # YAML config singleton
+│   ├── config_loader.py                  # YAML config singleton
+│   └── osd_label_probe.py               # GStreamer pad probe: TrackID OSD overlay
 ├── src/
 │   ├── vllm_ds_app_kafka_publish.py      # pipeline builder + Kafka + OSD branch
 │   └── consumer.py                       # optional Kafka consumer
@@ -169,7 +170,8 @@ DeepStream-VLM/
 │   ├── config_infer_yolo26.txt           # nvinfer: YOLO26 (closed)
 │   ├── config_infer_yolo26e.txt          # nvinfer: YOLOE detect (open)
 │   ├── config_infer_yolo26e_seg.txt      # nvinfer: YOLOE seg (open)
-│   └── config_driving_scene.yaml         # unified VLM prompt + segment config (pure VLM & --detect)
+│   ├── config_driving_scene.yaml         # unified VLM prompt + segment config (pure VLM & --detect)
+│   └── config_tracker_NvDCF_perf.yml    # NvDCF tracker config (performance preset)
 ├── lib/
 │   ├── libnvdsinfer_custom_impl_Yolo.so          # YOLO bbox parser (DS 9.0)
 │   └── libnvdsinfer_custom_impl_Yolo_seg.so      # YOLO seg parser (DS 9.0)
