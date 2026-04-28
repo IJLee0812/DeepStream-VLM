@@ -9,7 +9,7 @@ import pytest
 
 # ── Project root & path setup (must run at import time, before test collection) ──
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-for _subdir in ("plugin", "src"):
+for _subdir in ("plugins", "src"):
     _p = os.path.join(PROJECT_ROOT, _subdir)
     if _p not in sys.path:
         sys.path.insert(0, _p)

@@ -1020,7 +1020,7 @@ class NvVllmVLM(GstBase.BaseTransform):
             frame_tensors = []
             frame_times = []
 
-            for i, frame_data in enumerate(segment.frames):
+            for _i, frame_data in enumerate(segment.frames):
                 tensor = frame_data.tensor_gpu
                 if tensor.dim() == 3:
                     tensor = tensor.permute(2, 0, 1)

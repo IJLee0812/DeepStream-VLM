@@ -145,6 +145,17 @@ def format_detection_hints(
     return "\n".join(lines)
 
 
+def format_object_label(label: str, track_id: int | None) -> str:
+    """Format an OSD label for nvosdbin text overlay.
+
+    Returns ``'ClassName (TrackID: N)'`` when a tracker ID is available,
+    or plain ``'ClassName'`` when track_id is None (tracker not in pipeline).
+    """
+    if track_id is None:
+        return label
+    return f"{label} (TrackID: {track_id})"
+
+
 def format_user_prompt(
     user_prompt: str,
     stream_id: int,
