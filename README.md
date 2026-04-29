@@ -42,6 +42,45 @@ Left: middle frame of a 5-second segment. Right: VLM scene summary + YOLO-ground
 
 ---
 
+## Performance
+
+> **Environment:** RTX 4090 (24 GB VRAM) · DS 9.0 · CUDA 13.1 · TRT 10.x · vLLM 0.14.0 (FP8)  
+> **Video:** `assets/videos/sample.mp4` · 35 s · 929 frames decoded  
+> **Mode:** `--detect` + `--detect-output` (OSD MP4) · 8 segments × 5 s
+
+### Cold-start breakdown (first run, no cached `.engine`)
+
+| Phase | Duration | Notes |
+|---|---|---|
+| vLLM FP8 weight load | ~20 s | 3 safetensors shards, 10.3 GiB |
+| torch.compile (Dynamo + Inductor) | ~29 s | result cached on disk after first run |
+| vLLM engine init (KV cache + CUDA graphs) | ~41 s | includes warmup |
+| TRT engine build (`yolo26m.onnx` → `.engine`) | ~3 m 44 s | runs in parallel with vLLM init |
+| **Total cold-start wall-clock** | **~6 m 12 s** | TRT build is the bottleneck |
+
+> **Warm start** (`.engine` cached, torch.compile cache hit): TRT build is skipped → cold-start reduces to ~41 s for vLLM engine init.
+
+### VLM inference (per 5-second segment)
+
+| Metric | Value |
+|---|---|
+| Segments processed / dropped | 8 / 0 |
+| Inference latency — avg | 5.4 s |
+| Inference latency — min / max | 4.7 s / 5.9 s |
+| Input throughput | ~1,220 tokens/s |
+| Output throughput | ~60 tokens/s |
+| Total VLM time (8 segments) | 35 s |
+
+### GPU memory
+
+| Metric | Value |
+|---|---|
+| Peak VRAM | 21,336 MiB (20.8 GiB) |
+| Avg VRAM (steady-state) | 18,523 MiB (18.1 GiB) |
+| FP8 model footprint | ~10.3 GiB |
+
+---
+
 ## Quickstart
 
 Prerequisites: Docker w/ NVIDIA Container Toolkit, NVIDIA driver 580+, an RTX 4090 or equivalent Ada/Ampere GPU (≥24 GB VRAM), an [NGC API key](https://ngc.nvidia.com) for the FP8 VLM checkpoint download.
@@ -189,7 +228,7 @@ DeepStream-VLM/
 # host — unit + integration, no GPU/Docker needed
 uv venv .venv --python 3.10
 uv pip install --python .venv/bin/python pytest pytest-mock pytest-cov PyYAML
-.venv/bin/pytest tests/unit tests/integration -q   # 238 tests, ~0.2s
+.venv/bin/pytest tests/unit tests/integration -q   # 255 tests, ~0.8s
 
 # full suite inside Docker
 pytest tests/ -v
