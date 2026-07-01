@@ -115,14 +115,14 @@ python3 scripts/export_yolo26.py -w models/yolo26m.pt --simplify
 
 # Option B — open-vocab YOLOE-26 (detection, you pick the classes)
 python3 scripts/download_model.py --model yoloe --size m
-python3 scripts/export_yoloe.py \
+python3 scripts/export_yoloe-26.py \
     -w models/yoloe-26m-seg.pt \
     --custom-classes "vehicle,person,motorcycle,traffic_sign,traffic_light,truck,bus,bicycle" \
     --dynamic --simplify
 # → models/yoloe-26m-seg.onnx + models/yoloe-26m-seg.labels.txt
 
 # Option C — open-vocab YOLOE-26 (segmentation, masks in OSD output)
-python3 scripts/export_yoloe_seg.py \
+python3 scripts/export_yoloe-26-seg.py \
     -w models/yoloe-26m-seg.pt \
     --custom-classes "vehicle,person,motorcycle,traffic_sign,traffic_light,truck,bus,bicycle" \
     --dynamic --simplify --build-engine
@@ -203,8 +203,8 @@ DeepStream-VLM/
 ├── scripts/
 │   ├── download_model.py                 # fetch yolo26 / yoloe weights
 │   ├── export_yolo26.py                  # closed-vocab ONNX export
-│   ├── export_yoloe.py                   # open-vocab detect ONNX export
-│   └── export_yoloe_seg.py               # open-vocab seg ONNX + trtexec engine
+│   ├── export_yoloe-26.py               # open-vocab detect ONNX export
+│   └── export_yoloe-26-seg.py           # open-vocab seg ONNX + trtexec engine
 ├── configs/
 │   ├── config_infer_yolo26.txt           # nvinfer: YOLO26 (closed)
 │   ├── config_infer_yolo26e.txt          # nvinfer: YOLOE detect (open)
